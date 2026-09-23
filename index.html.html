@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Misión: Domina la Ley de Gauss</title>
+<style>
+:root{--bg:#0b1220;--pn:#141e33;--tx:#e5eaf3;--mu:#94a3b8;--co:#38bdf8;--fo:#c084fc;--qu:#fbbf24;--ok:#4ade80;--bd:#f87171;--hi:#fde047}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.5 system-ui,"Segoe UI",sans-serif}
+#app{max-width:900px;margin:auto;padding:12px}
+.top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--pn);padding:10px 14px;border-radius:12px;margin-bottom:10px}.top:empty{display:none}
+.bar{height:10px;background:#243049;border-radius:6px;overflow:hidden;flex:1;min-width:110px}.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--co),var(--ok));transition:width .5s}
+.card{background:var(--pn);border-radius:12px;padding:14px;margin:10px 0;border-left:5px solid var(--co)}
+.card.f{border-color:var(--fo)}.card.q{border-color:var(--qu)}.card.ok{border-color:var(--ok)}.card.bad{border-color:var(--bd)}
+button,select,input{font:inherit;color:var(--tx);background:#1c2942;border:1px solid #33425f;border-radius:8px;padding:8px 12px;max-width:100%}
+button{cursor:pointer}button:hover:not(:disabled){background:#27385b}button:disabled{opacity:.45;cursor:not-allowed}
+.pri{background:var(--co);color:#06101f;border:0;font-weight:700}.pri:hover:not(:disabled){background:#7dd3fc}
+.opts{display:grid;gap:8px;margin:10px 0}.opts button{text-align:left}
+.fm{font:italic 1.15em Georgia,serif;color:var(--fo)}
+.sym{cursor:pointer;border-bottom:2px dotted var(--fo);padding:0 3px}
+.map{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}.lv{text-align:left}.lv small{display:block;color:var(--mu)}
+.msg{margin:6px 0}.msg.ok{color:var(--ok)}.msg.bad{color:var(--bd)}.msg.h{color:var(--hi)}
+svg{max-width:100%;height:auto;background:#0e1729;border-radius:10px}svg text{fill:var(--tx);font-size:12px}
+table{border-collapse:collapse;width:100%}td,th{border:1px solid #33425f;padding:6px;font-size:.88em;vertical-align:top}tr.done td{background:#12301f}
+.pg{color:var(--mu);font-size:.85em}h1,h2{margin:.3em 0}
+@media(max-width:560px){.numrow{grid-template-columns:1fr!important}}
+</style></head><body>
+<svg width="0" height="0" style="position:absolute"><defs><marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0 0L8 4L0 8z" fill="context-stroke"/></marker></defs></svg>
+<div id="app"><div class="top" id="hud"></div><div id="main"></div></div>
+<script>
+/* ===== Constantes y utilidades ===== */
+const E0=8.854e-12,PI=Math.PI;
+const $=(s,e=document)=>e.querySelector(s);
+const rnd=(a,b)=>a+Math.floor(Math.random()*(b-a+1));
+const sh=a=>a.map(x=>[Math.random(),x]).sort((p,q)=>p[0]-q[0]).map(x=>x[1]);
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fx=v=>(Math.abs(v)>=1e4||(Math.abs(v)<1e-2&&v!==0))?v.toExponential(3):String(+v.toPrecision(4));
+// Unidades: [factor a SI, magnitud] (q=carga, E=campo, A=área, f=flujo)
+const U={'C':[1,'q'],'μC':[1e-6,'q'],'nC':[1e-9,'q'],'N/C':[1,'E'],'m²':[1,'A'],'N·m²/C':[1,'f']};
+const S={name:'',pts:0,lives:5,hints:0,errors:0,done:{},top:{},badges:[],teacher:false};
+const track=(t,ok)=>{const o=S.top[t]||(S.top[t]={ok:0,bad:0});ok?o.ok++:o.bad++};
+const gain=(n,t)=>{S.pts+=n;track(t,1);hud()};
+function fail(t){S.errors++;track(t,0);S.lives--;let m='';
+ if(S.lives<=0){S.lives=5;S.pts=Math.max(0,S.pts-10);m=' 💔 Sin intentos: se restauran (−10 pts).'}hud();return m}
+
+/* ===== Física de los cilindros coaxiales =====
+   q en cilindro interno (radio a), Q en cascarón (b<r<c, uniforme en volumen), longitud L. */
+const RN=['Región 1 (r < a)','Región 2 (a < r < b)','Región 3 (b < r < c)','Región 4 (r > c)'];
+const QT=['q·r²/a²','q','q + Q(r²−b²)/(c²−b²)','q + Q'];
+function gen(g){const a=rnd(1,5),b=a+rnd(1,3),c=b+rnd(1,3),f=rnd(2,8)/10;
+ const p={q:rnd(2,20)*1e-6,Q:rnd(2,30)*1e-6,a,b,c,L:rnd(1,10)};
+ p.r=+[0,a*f,a+(b-a)*f,b+(c-b)*f,c+rnd(1,4)][g].toFixed(2);return p}
+const regOf=p=>p.r<p.a?1:p.r<p.b?2:p.r<p.c?3:4;
+const qe=(p,g)=>g==1?p.q*p.r*p.r/(p.a*p.a):g==2?p.q:g==3?p.q+p.Q*(p.r*p.r-p.b*p.b)/(p.c*p.c-p.b*p.b):p.q+p.Q;
+const Ef=(p,g)=>qe(p,g)/(2*PI*E0*p.r*p.L);
+const mu=v=>(+(v*1e6).toFixed(3))+' μC';
+const desc=p=>`q = ${mu(p.q)}, Q = ${mu(p.Q)}, a = ${p.a} m, b = ${p.b} m, c = ${p.c} m, L = ${p.L} m, r = ${p.r} m`;
+
+/* ===== Constructores de retos (siempre calculados en JS) ===== */
+const mc=(q,o,tp,e,h,x)=>({t:'mc',q,o,a:0,tp,e,h,...x});   // o[0] es la correcta; se baraja al mostrar
+const nm=(q,v,k,tp,e,h,x)=>({t:'num',q,v,k,tp,e,h,...x});
+const qI=(g,p,pre='')=>{const v=qe(p,g);return nm(`${pre}Calcula <b>Q<sub>enc</sub></b> para r = ${p.r} m.<br><small>${desc(p)}</small>`,v,'q','Q_enc',
+ `${RN[g-1]}: Q<sub>enc</sub> = ${QT[g-1]} = ${mu(v)}.`,['Primero identifica la región de r.','¿Qué carga queda dentro de la superficie de radio r?',`En esta región Q_enc = ${QT[g-1]}.`])};
+const eI=(g,p,pre='')=>{const v=Ef(p,g);return nm(`${pre}Calcula el campo eléctrico <b>E</b> a r = ${p.r} m.<br><small>${desc(p)}</small>`,v,'E','Campo E',
+ `E = Q<sub>enc</sub>/(2πε₀rL) = ${fx(qe(p,g))} C / (2π·8.854×10⁻¹²·${p.r}·${p.L}) = ${fx(v)} N/C`,
+ ['Primero identifica la región.','¿Qué carga queda dentro de la superficie?','Recuerda: E(2πrL) = Q_enc/ε₀, entonces E = Q_enc/(2πε₀rL).'])};
+const rgI=p=>{const g=regOf(p);return mc(`Con a = ${p.a} m, b = ${p.b} m y c = ${p.c} m, una superficie gaussiana de radio r = ${p.r} m está en la…`,
+ [RN[g-1],...RN.filter((_,i)=>i!=g-1)],'Regiones',`r = ${p.r} m cae en la ${RN[g-1]}.`,['Compara r con a, luego con b y con c.'])};
+const B={ // retos conceptuales reutilizables
+ qenc:()=>mc('¿Qué representa Q<sub>enc</sub>?',['La carga encerrada por la superficie gaussiana','Toda la carga existente','La carga que está fuera','El campo eléctrico'],'Símbolos','Q_enc es solo la carga que queda DENTRO de la superficie gaussiana.',['El subíndice "enc" significa encerrada.']),
+ eform:()=>mc('Aplicando Gauss a un cilindro gaussiano de radio r y longitud L, ¿cuánto vale E?',['E = Q<sub>enc</sub>/(2πε₀rL)','E = Q<sub>enc</sub>/(4πε₀r²)','E = Q<sub>enc</sub>·2πrL/ε₀','E = Q<sub>enc</sub>/(ε₀πr²)'],'Cilindro','E·(2πrL) = Q_enc/ε₀; al despejar E queda Q_enc/(2πε₀rL).',['Área lateral: 2πrL.']),
+ surf:()=>mc('Un cilindro infinito cargado tiene simetría cilíndrica. ¿Qué superficie gaussiana conviene?',['Un cilindro coaxial de radio r y longitud L','Una esfera','Una pastilla plana','Un cubo'],'Superficie','Sobre un cilindro coaxial, E es radial y de igual magnitud en toda la superficie lateral.',['Elige la superficie que comparte la simetría del problema.']),
+ flux90:()=>mc('Si E y dA forman 90°, ¿cuánto flujo atraviesa la superficie?',['Cero','El máximo, EA','Negativo','Infinito'],'Flujo','Φ = EA cos 90° = 0: las líneas de campo rozan la superficie sin atravesarla.',['cos 90° = 0.']),
+ far:()=>mc('Un objeto cargado de ~1 m de tamaño se observa a 1 km. ¿Qué aproximación es razonable?',['Carga puntual con la carga total: E ≈ Q/(4πε₀r²)','Cilindro infinito: E = Q/(2πε₀rL)','El campo es cero','E aumenta con la distancia'],'Puntos lejanos','Lejos del objeto (r ≫ tamaño) los detalles de su forma se pierden: E ≈ (1/4πε₀)Q/r².',['¿Importa la forma cuando r es enorme?'])};
+const ERR=[
+ ['E = Q/(4πε₀r²) para un <b>cilindro infinito</b>.',['Varias: usó la geometría de una esfera, ignoró la simetría cilíndrica y no aparece L','Solo falta multiplicar por L','Solo hay que cambiar Q por q','Nada: es correcta'],'La superficie lateral es 2πrL, no 4πr². Correcto: E = Q<sub>enc</sub>/(2πε₀rL).'],
+ ['Región 1 (r &lt; a): Q<sub>enc</sub> = q','Se usó toda la carga, pero solo está encerrada la fracción r²/a²|La carga debe ser Q|Debe usarse 4πr²|No hay error'.split('|'),'Dentro de r&lt;a solo cabe el volumen πr²L de un total πa²L: Q<sub>enc</sub> = q r²/a².'],
+ ['Región 2: E = q/(2πε₀aL) (usó a en lugar de r).','Confundió r con a: el área gaussiana usa el radio r de SU superficie|Falta sumar Q|Debe usarse ε₀ al cuadrado|No hay error'.split('|'),'El área es 2πrL con r el radio de la superficie gaussiana: E = q/(2πε₀rL).'],
+ ['E = q/(2πε₀r) (sin L).','Olvidó L: el área lateral es 2πrL|Sobra ε₀|q debe ir al cuadrado|No hay error'.split('|'),'Como A = 2πrL, la longitud L debe aparecer en el denominador.'],
+ ['Flujo total = E·πr² (tapas) + E·2πrL (lateral).','Las tapas forman θ = 90° con E: su flujo es 0|Las tapas aportan el doble|Debe usarse θ = 180°|No hay error'.split('|'),'Con E radial, dA de las tapas es perpendicular a E: Φ = EA cos 90° = 0. Solo cuenta la lateral.'],
+ ['Para un cilindro infinito: E = (1/4πε₀)·q/r² (carga puntual).','La fórmula de carga puntual exige simetría esférica; aquí hay simetría cilíndrica|Debe ser q²/r|Falta un factor 2|No hay error'.split('|'),'Cilindro infinito: E ∝ 1/r. Carga puntual: E ∝ 1/r².']];
+const errI=x=>mc(`¿Qué está mal?<br><span class="fm">${x[0]}</span>`,x[1],'Errores comunes',x[2],['Recuerda: simetría → superficie → área → Q_enc → Gauss.'],{p:8});
+
+/* ===== Motor de preguntas (opción múltiple y numéricas con unidades) ===== */
+function ask(box,it,next){
+ let hi=0,wr=0,used=0,soft=false;const H=it.h||[];
+ const opts=it.t=='mc'?sh(it.o.map((x,i)=>[x,i==it.a])):null;
+ box.innerHTML=`<div class="card q"><b>${it.q}</b>${S.teacher?`<p class="msg h">👩‍🏫 Respuesta: ${it.t=='mc'?it.o[it.a]:fx(it.v)}</p>`:''}
+ ${it.t=='mc'?`<div class="opts">${opts.map((o,i)=>`<button data-i="${i}">${o[0]}</button>`).join('')}</div>`:
+ `<div class="opts numrow" style="grid-template-columns:1fr auto auto"><input class="in" placeholder="Tu resultado (ej. 2.5 o 3e4)" inputmode="decimal"><select class="un">${Object.keys(U).map(u=>`<option>${u}</option>`).join('')}</select><button class="pri go">Comprobar</button></div>`}
+ <button class="hb" ${H.length?'':'disabled'}>💡 Pista</button><div class="hs"></div><div class="fb"></div></div>`;
+ const fb=$('.fb',box),hs=$('.hs',box);
+ const showHint=()=>{if(hi<H.length)hs.insertAdjacentHTML('beforeend',`<p class="msg h">💡 Pista ${hi+1}: ${H[hi++]}</p>`)};
+ $('.hb',box).onclick=()=>{if(hi<H.length){used++;S.hints++;showHint();hud()}};
+ function end(ok,g){box.querySelectorAll('button,input,select').forEach(e=>e.disabled=true);
+  fb.innerHTML=`<p class="msg ${ok?'ok':'bad'}">${ok?'✅ ¡Correcto! +'+g+' ⭐':'📘 Veamos la solución:'} ${it.e}</p><button class="pri nx">Continuar ▶</button>`;
+  $('.nx',box).onclick=next}
+ function res(ok,btn){
+  if(ok){const g=Math.max(2,(it.p||10)-2*used-2*wr);gain(g,it.tp);return end(true,g)}
+  if(it.soft&&!soft){soft=true;if(btn)btn.disabled=true;fb.innerHTML=`<p class="msg h">🤔 ${it.s||'Esta superficie no aprovecha la simetría del problema. Busca una superficie donde el campo eléctrico tenga el mismo comportamiento.'}</p>`;return}
+  wr++;const m=fail(it.tp);if(btn)btn.disabled=true;
+  if(wr>=3)return end(false);
+  if(wr==2)showHint();
+  fb.innerHTML=`<p class="msg bad">❌ No es correcto. Inténtalo de nuevo (puedes usar 💡).${m}</p>`}
+ if(it.t=='mc')box.querySelectorAll('.opts button').forEach(b=>b.onclick=()=>res(opts[b.dataset.i][1],b));
+ else $('.go',box).onclick=()=>{const v=parseFloat($('.in',box).value.replace(',','.')),u=$('.un',box).value;
+  if(isNaN(v)){fb.innerHTML='<p class="msg h">Escribe un número.</p>';return}
+  if(U[u][1]!=it.k){fb.innerHTML=`<p class="msg h">⚠️ La unidad ${u} no corresponde a esta magnitud (revisa qué estás calculando).</p>`;return}
+  res(Math.abs(v*U[u][0]-it.v)<=0.02*Math.abs(it.v))}}
+
+function stepper(el,steps){el.innerHTML='<div class="card f"><div class="st"></div><button class="nb">Siguiente paso ▶</button></div>';
+ let n=0;const st=$('.st',el),bt=$('.nb',el);const go=()=>{st.insertAdjacentHTML('beforeend',`<p>${steps[n++]}</p>`);if(n>=steps.length)bt.remove()};bt.onclick=go;go()}
+const card=(t,c='c')=>`<div class="card ${c}">${t}</div>`;
+
+/* ===== Niveles ===== */
+const LV=[
+{n:'¿Qué estoy calculando?',ic:'🔍',b:'🏅 Lector de símbolos',d:'Significado de E, Φ_E, Q_enc y ε₀. Cada símbolo es pulsable.',
+ intro(b){b.innerHTML=card('<b>🎯 Misión 1:</b> antes de calcular, entiende cada símbolo. ¡Tócalos!')+`<div class="card f"><p class="fm" style="font-size:1.6em">
+ <span class="sym" data-t="Φ_E: flujo eléctrico. Mide cuántas líneas de campo atraviesan una superficie.">Φ<sub>E</sub></span> =
+ <span class="sym" data-t="∮: suma sobre TODA la superficie cerrada (la superficie gaussiana).">∮</span>
+ <span class="sym" data-t="E: campo eléctrico. Se mide en N/C.">E</span> ·
+ <span class="sym" data-t="dA: pequeño trozo de área; su dirección es perpendicular a la superficie.">dA</span> =
+ <span class="sym" data-t="Q_enc: carga que queda DENTRO de la superficie gaussiana.">Q<sub>enc</sub></span> /
+ <span class="sym" data-t="ε₀: permitividad eléctrica del vacío, 8.854×10⁻¹² C²/(N·m²).">ε₀</span></p><p class="msg h" id="tip">Toca un símbolo…</p></div>`;
+  b.querySelectorAll('.sym').forEach(s=>s.onclick=()=>$('#tip').textContent=s.dataset.t)},
+ items:()=>[B.qenc(),mc('¿En qué unidades se mide el campo eléctrico E?',['N/C','C','m²','N·m²'],'Símbolos','E se mide en newtons por coulomb (N/C).',['Es fuerza por unidad de carga.']),
+  mc('¿Qué significa ε₀?',['Permitividad eléctrica del vacío','El campo eléctrico','La carga encerrada','El flujo'],'Símbolos','ε₀ = 8.854×10⁻¹² C²/(N·m²) es una constante de la naturaleza.',['Es una constante, no una variable.'])]},
+{n:'Construye tu superficie gaussiana',ic:'🫧',b:'🏅 Ojo para la simetría',d:'Carga puntual→esfera; cilindro→cilindro coaxial; plano→pastilla.',
+ intro(b){b.innerHTML=card('<b>🎯 Misión 2:</b> la superficie gaussiana se elige según la <b>simetría</b>: debe ser una superficie donde E tenga el mismo valor y sea perpendicular (o paralelo) a ella.')+
+ `<div class="card"><svg viewBox="0 0 360 125"><g fill="none" stroke="#38bdf8" stroke-width="2"><circle cx="55" cy="55" r="36"/><ellipse cx="180" cy="26" rx="34" ry="9"/><ellipse cx="180" cy="86" rx="34" ry="9"/><path d="M146 26V86M214 26V86"/><ellipse cx="300" cy="42" rx="34" ry="8"/><ellipse cx="300" cy="62" rx="34" ry="8"/><path d="M266 42V62M334 42V62"/></g>
+ <circle cx="55" cy="55" r="4" fill="#f97316"/><rect x="177" y="20" width="6" height="72" fill="#f97316"/><path d="M250 52H350" stroke="#f97316" stroke-width="3"/>
+ <text x="22" y="115">Esfera (carga puntual)</text><text x="128" y="115">Cilindro (línea/cilindro)</text><text x="268" y="115">Pastilla (plano)</text></svg></div>`},
+ items:()=>[mc('Una <b>carga puntual</b>: el campo apunta radialmente hacia afuera en todas direcciones. ¿Qué superficie gaussiana conviene?',['Esfera centrada en la carga','Cilindro','Pastilla (cilindro corto)'],'Superficie','Simetría esférica: a igual distancia, E tiene el mismo valor y es perpendicular a la esfera.',['¿Qué superficie está siempre a la misma distancia de la carga?'],{soft:1}),
+  mc('Una <b>distribución cilíndrica</b> (larga): E apunta alejándose del eje. ¿Qué superficie conviene?',['Cilindro coaxial','Esfera','Pastilla (cilindro corto)'],'Superficie','Sobre un cilindro coaxial, E es radial y constante en la lateral; en las tapas E es paralelo a la superficie.',['El campo sale perpendicular al eje.'],{soft:1}),
+  mc('Un <b>plano infinito</b> cargado: E sale perpendicular al plano. ¿Qué superficie conviene?',['Pastilla (cilindro corto) que atraviesa el plano','Esfera','Cilindro coaxial'],'Superficie','La pastilla tiene tapas paralelas al plano, donde E es perpendicular y constante.',['E es perpendicular al plano, sin importar el punto.'],{soft:1})]},
+{n:'Flujo eléctrico',ic:'🌊',b:'🏅 Navegante del flujo',d:'Φ = EA cosθ: máximo a 0°, cero a 90°, negativo a 180°.',
+ intro(b){b.innerHTML=card('<b>🎯 Misión 3:</b> el flujo cuenta cuántas líneas de campo <i>atraviesan</i> la superficie: <span class="fm">Φ = E·A·cosθ</span>, con θ el ángulo entre E y dA (dA es la flecha amarilla, perpendicular a la superficie). Aquí E = 100 N/C y A = 2 m².')+
+  `<div class="card"><svg viewBox="0 0 320 180">${[30,60,90,120,150].map(y=>`<line x1="10" y1="${y}" x2="300" y2="${y}" stroke="#38bdf8" marker-end="url(#ar)"/>`).join('')}<g id="sf"><line x1="160" y1="40" x2="160" y2="140" stroke="#f97316" stroke-width="6"/><line x1="160" y1="90" x2="210" y2="90" stroke="#fde047" stroke-width="3" marker-end="url(#ar)"/></g></svg>
+  <p>θ = <b id="th">0</b>° <input type="range" id="sl" min="0" max="180" step="5" value="0" style="width:60%"> <button data-a="0">0°</button><button data-a="90">90°</button><button data-a="180">180°</button></p><p class="fm" id="fl"></p></div>`;
+  const u=()=>{const t=+$('#sl').value,f=200*Math.cos(t*PI/180),v=Math.abs(f)<1e-9?0:f;$('#th').textContent=t;$('#sf').setAttribute('transform',`rotate(${-t} 160 90)`);
+   $('#fl').textContent=`Φ = 100·2·cos ${t}° = ${v.toFixed(1)} N·m²/C  ${t==0?'→ máximo':t==90?'→ cero':t>90?'→ negativo':''}`};
+  $('#sl').oninput=u;b.querySelectorAll('button[data-a]').forEach(x=>x.onclick=()=>{$('#sl').value=x.dataset.a;u()});u()},
+ items(){const E=rnd(1,5)*100,A=rnd(1,4),t=[60,120][rnd(0,1)];
+  return [B.flux90(),mc('Si E y dA forman 180°, el flujo es…',['Negativo (−EA)','Cero','Positivo','Imposible de saber'],'Flujo','cos 180° = −1: las líneas atraviesan la superficie "hacia adentro".',['cos 180° = −1.']),
+  nm(`E = ${E} N/C, A = ${A} m² y θ = ${t}°. ¿Cuánto vale Φ = EA cosθ?`,E*A*Math.cos(t*PI/180),'f','Flujo',`Φ = ${E}·${A}·cos ${t}° = ${fx(E*A*Math.cos(t*PI/180))} N·m²/C`,['Calcula cos θ primero.','Multiplica E·A y luego por cos θ.'])]}},
+{n:'El cilindro gaussiano',ic:'🛢️',b:'🏅 Domador de cilindros',d:'A = 2πrL, tapas sin flujo (θ=90°), lateral con θ=0°, E = Q_enc/(2πε₀rL).',
+ intro(b){b.innerHTML=card('<b>🎯 Misión 4:</b> el cilindro gaussiano (línea punteada) rodea al cilindro cargado (naranja). Activa o desactiva las etiquetas:')+
+  `<div class="card"><svg viewBox="0 0 320 200"><rect x="50" y="82" width="220" height="26" fill="#f97316" opacity=".85"/><g fill="none" stroke="#38bdf8" stroke-dasharray="4" stroke-width="2"><ellipse cx="80" cy="95" rx="14" ry="52"/><ellipse cx="240" cy="95" rx="14" ry="52"/><path d="M80 43H240M80 147H240"/></g>
+  <g class="lb-E" stroke="#fde047" stroke-width="2"><path d="M130 43V15M190 43V15M130 147V175M190 147V175" marker-end="url(#ar)"/><text x="136" y="26" stroke="none">E</text></g>
+  <g class="lb-r" stroke="#4ade80"><path d="M160 95V43"/><text x="165" y="72" stroke="none">r</text></g>
+  <g class="lb-L" stroke="#c084fc"><path d="M80 190H240"/><text x="155" y="186" stroke="none">L</text></g>
+  <g class="lb-dA"><rect x="205" y="35" width="14" height="8" fill="#c084fc"/><text x="222" y="42">dA</text></g>
+  <text class="lb-Q" x="100" y="99" style="fill:#0b1220;font-size:11px">Q_enc (dentro)</text></svg>
+  <p>${['r','L','E','dA','Q'].map(k=>`<label><input type="checkbox" data-k="${k}" checked> ${k=='Q'?'Q<sub>enc</sub>':k}</label>`).join(' &nbsp; ')}</p></div><div id="st4"></div>`;
+  b.querySelectorAll('input[data-k]').forEach(c=>c.onchange=()=>b.querySelectorAll('.lb-'+c.dataset.k).forEach(e=>e.style.display=c.checked?'':'none'));
+  stepper($('#st4'),['<b>1. Simetría:</b> el campo sale del eje, en dirección radial.','<b>2. Superficie:</b> cilindro coaxial de radio r y longitud L.',
+  '<b>3. Tapas:</b> E es paralelo a ellas, θ = 90° → Φ = 0. No aportan flujo.','<b>4. Lateral:</b> θ = 0°, E constante → Φ = E·A con <span class="fm">A = 2πrL</span>.',
+  '<b>5. Ley de Gauss:</b> <span class="fm">E(2πrL) = Q<sub>enc</sub>/ε₀</span>','<b>6. Despejar:</b> <span class="fm">E = Q<sub>enc</sub>/(2πε₀rL)</span>'])},
+ items:()=>[mc('¿Por qué las tapas del cilindro gaussiano no aportan flujo?',['E es radial: forma 90° con dA de las tapas, y Φ = EA cos 90° = 0','Porque las tapas no tienen área','Porque E vale cero en las tapas','Porque θ = 0° en las tapas'],'Cilindro','En las tapas dA es paralelo al eje y E es perpendicular al eje: cos 90° = 0.',['¿Qué ángulo forman E (radial) y dA (paralelo al eje)?']),
+  mc('¿Cuál es el área de la superficie lateral de un cilindro de radio r y longitud L?',['2πrL','4πr²','πr²L','2πr'],'Cilindro','Es "circunferencia por longitud": 2πr · L.',['Desenrolla el cilindro: es un rectángulo.']),B.eform()]},
+{n:'¿Cuánta carga está encerrada?',ic:'🧮',b:'🏅 Contador de carga',d:'Para r<a: ρ = q/(πa²L), Q_enc = ρπr²L = q r²/a².',
+ intro(b){b.innerHTML=card('<b>🎯 Misión 5:</b> si la carga q está repartida <b>uniformemente</b> en un cilindro de radio a y tu superficie tiene radio r &lt; a, solo encierras una parte.')+'<div id="st5"></div>';
+  stepper($('#st5'),['<b>1.</b> Densidad de carga por volumen: <span class="fm">ρ = q/(πa²L)</span>','<b>2.</b> Volumen encerrado por tu superficie (r &lt; a): πr²L','<b>3.</b> <span class="fm">Q<sub>enc</sub> = ρ·(πr²L)</span>',
+  '<b>4.</b> Simplificando: <span class="fm">Q<sub>enc</sub> = q r²/a²</span>','<b>Ejemplo:</b> q = 10 μC, a = 2 m, r = 1 m → Q<sub>enc</sub> = 10·1²/2² = 2.5 μC. Ahora te toca a ti.'])},
+ items:()=>[mc('Si r &lt; a, ¿está encerrada toda la carga del cilindro interno?',['No, solo la fracción r²/a²','Sí, siempre','No hay carga encerrada','Depende de L'],'Q_enc','Solo se encierra el volumen πr²L de un total πa²L.',['Compara los volúmenes.']),
+  nm('Con q = 10 μC, a = 2 m y r = 1 m, ¿cuánto vale Q<sub>enc</sub>?',2.5e-6,'q','Q_enc','Q<sub>enc</sub> = q r²/a² = 10·1/4 = 2.5 μC.',['Q_enc = q r²/a².','r²/a² = 1/4.']),qI(1,gen(1),'🎲 '),qI(1,gen(1),'🎲 ')]},
+{n:'Las 4 regiones',ic:'🎯',b:'🏅 Cazador de regiones',d:'r<a, a<r<b, b<r<c, r>c en cilindros coaxiales.',
+ intro(b){b.innerHTML=card('<b>🎯 Misión 6:</b> cilindros coaxiales vistos de frente: cilindro interno (radio a, carga q), cascarón (radio interno b, externo c, carga Q). Mueve la superficie gaussiana (punteada). Aquí a = 1, b = 2, c = 3 m.')+
+  `<div class="card"><svg viewBox="0 0 300 300" style="display:block;margin:auto;max-width:300px"><circle cx="150" cy="150" r="102" fill="#a855f7" opacity=".6"/><circle cx="150" cy="150" r="68" fill="#0e1729"/><circle cx="150" cy="150" r="34" fill="#f97316"/>
+  <text x="168" y="147">a</text><text x="203" y="147">b</text><text x="237" y="147">c</text><circle id="gc" cx="150" cy="150" r="20" fill="none" stroke="#38bdf8" stroke-width="3" stroke-dasharray="6"/></svg>
+  <p>r = <b id="rv"></b> m <input type="range" id="rs" min="0.2" max="4.2" step="0.1" value="0.5" style="width:70%"></p><p class="msg h" id="rt"></p></div>`;
+  const u=()=>{const r=+$('#rs').value,g=r<1?1:r<2?2:r<3?3:4;$('#gc').setAttribute('r',r*34);$('#rv').textContent=r.toFixed(1);
+   $('#rt').innerHTML=`${RN[g-1]}: Q<sub>enc</sub> = ${QT[g-1]}`};$('#rs').oninput=u;u()},
+ items:()=>[rgI(gen(rnd(1,4))),rgI(gen(rnd(1,4))),rgI(gen(rnd(1,4)))]},
+{n:'Tabla de las 4 regiones',ic:'📋',b:'🏅 Arquitecto de tablas',d:'Completar por región: carga encerrada, Q_enc, área y E.',
+ intro(b,fin){const C=['Solo una parte de q (radio r &lt; a)','Toda la carga q del cilindro interno','q y una parte de Q (del cascarón)','q + Q (toda la carga)'],
+  A=['2πrL (lateral del cilindro)','4πr² (esfera)','πr²L (volumen)','2πr (perímetro)'],
+  Ee=['qr/(2πε₀La²)','q/(2πε₀rL)','[q+Q(r²−b²)/(c²−b²)]/(2πε₀rL)','(q+Q)/(2πε₀rL)'],R=['r &lt; a','a &lt; r &lt; b','b &lt; r &lt; c','r &gt; c'];
+  const sel=L=>`<select>${'<option value="-1">—</option>'+sh(L.map((t,i)=>[t,i])).map(([t,i])=>`<option value="${i}">${t}</option>`).join('')}</select>`;
+  b.innerHTML=card('<b>🎯 Misión 7:</b> descubre la tabla fila por fila. Elige en cada columna y pulsa <b>Comprobar</b>. Las columnas incorrectas se marcan en rojo.')+
+  `<div style="overflow-x:auto"><table><tr><th>Región</th><th>¿Qué carga está encerrada?</th><th>Q<sub>enc</sub></th><th>Área gaussiana</th><th>E</th><th></th></tr>${R.map((r,i)=>`<tr data-i="${i}"><td>${r}</td><td>${sel(C)}</td><td>${sel(QT)}</td><td>${sel(A)}</td><td>${sel(Ee)}</td><td><button class="ck">Comprobar</button></td></tr>`).join('')}</table></div><p class="msg h" id="tm"></p>`;
+  let n=0;b.querySelectorAll('.ck').forEach(k=>k.onclick=()=>{const tr=k.closest('tr'),i=+tr.dataset.i,s=[...tr.querySelectorAll('select')],need=[i,i,0,i];
+   const bad=s.map((x,j)=>+x.value!=need[j]);s.forEach((x,j)=>x.style.borderColor=bad[j]?'#f87171':'');
+   if(!bad.some(Boolean)){tr.className='done';s.forEach(x=>x.disabled=true);k.remove();gain(8,'Regiones');
+    if(++n==4){$('#tm').textContent='✅ ¡Tabla completa!';fin()}else $('#tm').textContent='✅ Fila correcta (+8 ⭐).'}
+   else $('#tm').textContent='❌ Revisa las columnas en rojo: ¿qué carga queda dentro? Recuerda A = 2πrL.'+fail('Regiones')})}},
+{n:'Desafío del cascarón',ic:'🛡️',b:'🏅 Maestro del cascarón',d:'Seis pasos: región, superficie, Q_enc, área, Gauss, despejar E.',
+ intro(b){b.innerHTML=card('<b>🎯 Misión 8:</b> cilindro interno (radio a, carga q) rodeado por un cascarón cilíndrico (radios b y c, carga Q uniforme en su volumen). Calcula E en una región al azar siguiendo 6 pasos. Cada paso vale puntos.')},
+ items(){const g=rnd(1,4),p=gen(g),c=`<small>Paso `,z=`<br><small>${desc(p)}</small>`,v=qe(p,g),A=2*PI*p.r*p.L;
+  return [rgI(p),mc('Paso 2/6 — ¿Qué superficie gaussiana eliges?',['Cilindro coaxial de radio r y longitud L','Esfera de radio r','Pastilla plana','Cubo de lado r'],'Superficie','La simetría es cilíndrica: cilindro coaxial.',['Simetría cilíndrica → superficie cilíndrica.']),
+  qI(g,p,'Paso 3/6 — '),
+  nm(`Paso 4/6 — Área lateral de la superficie gaussiana (r = ${p.r} m, L = ${p.L} m).`,A,'A','Área',`A = 2πrL = 2π·${p.r}·${p.L} = ${fx(A)} m²`,['Solo cuenta la lateral (las tapas dan flujo 0).','A = 2πrL.']),
+  mc('Paso 5/6 — Ley de Gauss aplicada a tu superficie:',['E·(2πrL) = Q<sub>enc</sub>/ε₀','E·(4πr²) = Q<sub>enc</sub>/ε₀','E·(πr²L) = Q<sub>enc</sub>·ε₀','E = Q<sub>enc</sub>·ε₀'],'Cilindro','Φ = E·A_lateral = Q_enc/ε₀.',['Φ = E·A y Φ = Q_enc/ε₀.']),
+  eI(g,p,'Paso 6/6 — Despeja: ')]}},
+{n:'Puntos lejanos',ic:'🔭',b:'🏅 Observador lejano',d:'r ≫ tamaño: E ≈ (1/4πε₀)Q/r². Diferencia con el cilindro infinito.',
+ intro(b){b.innerHTML=card('<b>🎯 Misión 9:</b> muy lejos de un objeto cargado (r ≫ su tamaño) puedes tratarlo, en general, como una <b>carga puntual</b> con su carga total.')+
+  `<div class="card"><svg viewBox="0 0 400 100"><path d="M30 50Q40 15 70 28Q100 20 98 55Q88 85 55 80Q25 75 30 50Z" fill="#f97316"/><text x="30" y="98">objeto complejo</text><path d="M120 50H260" stroke="#38bdf8" stroke-width="2" marker-end="url(#ar)"/><text x="150" y="42">muy lejos (r ≫ tamaño)</text><circle cx="330" cy="50" r="5" fill="#f97316"/><text x="285" y="98">carga puntual</text></svg>
+  <p class="fm">E ≈ (1/4πε₀) · Q / r²</p><p>⚠️ Distinto del cilindro <b>infinito</b>: allí E = Q<sub>enc</sub>/(2πε₀rL) ∝ 1/r, y la superficie es un cilindro, no una esfera.</p></div>`},
+ items:()=>[B.far(),mc('¿Cuál es la diferencia clave entre carga puntual y cilindro infinito?',['Puntual: E ∝ 1/r² (superficie esférica); cilindro infinito: E ∝ 1/r (superficie cilíndrica)','Ninguna','Puntual: E ∝ 1/r; cilindro: E ∝ 1/r²','Solo cambia el signo'],'Puntos lejanos','Sus simetrías y áreas gaussianas (4πr² vs 2πrL) son distintas.',['Compara 4πr² con 2πrL.']),
+  mc('¿Cómo se relacionan Gauss y Coulomb?',['Gauss da E fácilmente cuando hay simetría; para una carga puntual reproduce Coulomb','Son incompatibles','Gauss solo sirve para cilindros','Coulomb solo sirve para planos'],'Puntos lejanos','Ambas son equivalentes; Gauss es un atajo cuando hay simetría.',['Aplica Gauss a una esfera alrededor de una carga puntual.']),
+  mc('¿Cuándo importa la forma del objeto cargado?',['Cerca del objeto; lejos basta con su carga total','Nunca','Solo lejos del objeto','Solo en el vacío'],'Puntos lejanos','A distancias grandes los detalles geométricos se "promedian".',['Piensa en el objeto visto desde muy lejos.'])]},
+{n:'¿Qué está mal?',ic:'🕵️',b:'🏅 Detective de errores',d:'Errores típicos: 4πr² en cilindro, toda la carga, confundir r con a/b/c, olvidar L, flujo por tapas, fórmula puntual.',
+ intro(b){b.innerHTML=card('<b>🎯 Misión 10:</b> aparece una solución incorrecta. Encuentra el error.')},items:()=>ERR.map(errI)},
+{n:'Práctica libre',ic:'🔄',b:'🏅 Practicante constante',d:'Generador infinito con valores nuevos (μC, m, N/C).',inf:1,
+ intro(b){b.innerHTML=card('<b>🎯 Misión 11:</b> ejercicios ilimitados con valores nuevos (q, Q entre 2 y 30 μC; a, b, c, L en metros). Responde con la unidad adecuada.')},
+ items(){const g=rnd(1,4),p=gen(g);return [Math.random()<.5?qI(g,p):eI(g,p)]}},
+{n:'Quiz final',ic:'🏁',b:'🏅 Maestro de la Ley de Gauss',d:'10 preguntas mixtas: conceptos, regiones, Q_enc, E, errores y puntos lejanos.',final:1,
+ intro(b){b.innerHTML=card('<b>🏁 Quiz final:</b> 10 preguntas mezclando conceptos y cálculos.')},
+ items(){const R=()=>rnd(1,4),a=R(),b=R(),c=R();return [B.qenc(),B.eform(),B.surf(),rgI(gen(R())),qI(a,gen(a)),eI(b,gen(b)),errI(ERR[rnd(0,5)]),B.far(),B.flux90(),qI(c,gen(c))]}}];
+
+const TIPS={'Símbolos':'repasa qué es cada símbolo: E (N/C), Q_enc (carga dentro), ε₀.','Superficie':'elige la superficie que comparte la simetría del problema.','Flujo':'recuerda Φ = EA cosθ: 0° máximo, 90° cero, 180° negativo.',
+'Cilindro':'las tapas no aportan flujo; solo la lateral, A = 2πrL.','Q_enc':'pregúntate qué carga queda DENTRO de tu superficie.','Regiones':'compara r con a, b y c antes de calcular.',
+'Campo E':'E = Q_enc/(2πε₀rL): comprueba Q_enc, r y L.','Errores comunes':'no mezcles fórmulas de carga puntual con cilindros.','Puntos lejanos':'lejos del objeto solo importa su carga total (E ∝ 1/r²).',
+'Área':'la lateral del cilindro es 2πrL.'};
+
+/* ===== Pantallas ===== */
+function hud(){const n=Object.keys(S.done).length;$('#hud').innerHTML=`<b>👤 ${esc(S.name)}</b><span>⭐ ${S.pts}</span><span>${'❤️'.repeat(Math.max(0,S.lives))}</span><span>💡 ${S.hints}</span><div class="bar"><i style="width:${n/LV.length*100}%"></i></div><span>📊 ${n}/${LV.length}</span><button id="tb">👩‍🏫 Modo profesor</button>`;
+ $('#tb').onclick=teacher}
+function start(){$('#hud').innerHTML='';$('#main').innerHTML=`<div class="card" style="text-align:center"><h1>🎯 Misión: Domina la Ley de Gauss</h1><p>Aprende la lógica:<br><b>SIMETRÍA → SUPERFICIE GAUSSIANA → ÁREA → Q<sub>enc</sub> → LEY DE GAUSS → DESPEJAR E</b></p>
+ <input id="nm" placeholder="Tu nombre" maxlength="30"> <button class="pri" id="go">Comenzar ▶</button></div>`;
+ $('#go').onclick=()=>{S.name=$('#nm').value.trim()||'Estudiante';hud();map()}}
+function map(){const m=$('#main');m.innerHTML=`<h2>🗺️ Mapa de misiones</h2><div class="map">${LV.map((l,i)=>{const u=i==0||S.done[i-1]||S.teacher;
+ return `<button class="lv" data-i="${i}" ${u?'':'disabled'}>${u?(S.done[i]?'✅':l.ic):'🔒'} <b>Nivel ${i+1}</b><small>${l.n}</small></button>`}).join('')}</div><p>${S.badges.length?'🏆 '+S.badges.join(' · '):'🏆 Aún sin insignias: completa un nivel'}</p>`;
+ m.querySelectorAll('.lv').forEach(b=>b.onclick=()=>play(+b.dataset.i))}
+function play(i){const L=LV[i],m=$('#main');m.innerHTML=`<button class="bk">← Mapa</button><h2>${L.ic} Nivel ${i+1}: ${L.n}</h2><div class="intro"></div><div class="items"></div>`;
+ $('.bk',m).onclick=map;const ib=$('.intro',m),it=$('.items',m);let q=L.items?L.items():[],k=0;
+ const fin=()=>{S.done[i]=true;if(L.b&&!S.badges.includes(L.b))S.badges.push(L.b);hud();
+  it.innerHTML=`<div class="card ok"><b>🏆 ¡Nivel completado!</b> Insignia: ${L.b}</div><button class="pri" id="nx">${L.final?'Ver resultados ▶':'Siguiente misión ▶'}</button>`;
+  $('#nx').onclick=()=>L.final?end():play(i+1)};
+ const step=()=>{if(k>=q.length)return fin();it.innerHTML=`<div class="pg">${L.inf?'Ejercicio nuevo':'Reto '+(k+1)+' de '+q.length}</div><div class="cur"></div>`;
+  ask($('.cur',it),q[k],()=>{if(L.inf){it.innerHTML='<button class="pri" id="ne">🔄 Nuevo ejercicio</button> <button id="te">Terminar práctica</button>';
+   $('#ne').onclick=()=>{q=L.items();k=0;step()};$('#te').onclick=fin}else{k++;step()}})};
+ L.intro(ib,fin);if(L.items)step()}
+function end(){const t=S.top,ks=Object.keys(t),ok=ks.reduce((s,k)=>s+t[k].ok,0),bad=ks.reduce((s,k)=>s+t[k].bad,0),pc=ok+bad?Math.round(100*ok/(ok+bad)):0;
+ const dom=ks.filter(k=>t[k].ok>0&&t[k].ok>=2*t[k].bad),rep=ks.filter(k=>!dom.includes(k));
+ $('#main').innerHTML=`<div class="card ok"><h2>🏁 Misión cumplida, ${esc(S.name)}</h2><p>⭐ <b>${S.pts}</b> puntos · 🎯 <b>${pc}%</b> de eficacia (aciertos frente a intentos) · ❌ ${S.errors} errores · 💡 ${S.hints} pistas</p>
+ <p>${pc>=80?'Dominas la lógica de Gauss: simetría → superficie → área → Q_enc → Gauss → E.':pc>=55?'Vas bien: ya ves la lógica, afina los conceptos marcados abajo.':'Repasa la secuencia simetría → superficie → área → Q_enc → Gauss antes de calcular.'}</p></div>
+ <div class="card c"><b>✅ Conceptos dominados:</b> ${dom.length?dom.join(', '):'aún ninguno'}</div>
+ <div class="card q"><b>📚 Conviene repasar:</b>${rep.length?'<ul>'+rep.map(k=>`<li><b>${k}</b>: ${TIPS[k]||'vuelve a su nivel.'}</li>`).join('')+'</ul>':' ¡nada pendiente!'}</div>
+ <div class="card f">🏆 ${S.badges.join(' · ')}</div><button class="pri" onclick="map()">Volver al mapa</button> <button onclick="location.reload()">Reiniciar</button>`}
+function teacher(){const p={q:10e-6,Q:20e-6,a:1,b:2,c:3,L:5},rs=[.5,1.5,2.5,4];
+ const rows=rs.map((r,i)=>{const pp={...p,r};return `<tr><td>${RN[i]}<br>r = ${r} m</td><td>${QT[i]}</td><td>${mu(qe(pp,i+1))}</td><td>${fx(Ef(pp,i+1))} N/C</td></tr>`}).join('');
+ const m=$('#main');m.innerHTML=`<button class="bk">← Volver</button><div class="card"><h2>👩‍🏫 Modo profesor</h2><label><input type="checkbox" id="tv" ${S.teacher?'checked':''}> Mostrar la respuesta en cada reto y desbloquear todos los niveles</label></div>
+ <div class="card f"><b>Fórmulas clave</b><p class="fm">Φ<sub>E</sub> = ∮E·dA = Q<sub>enc</sub>/ε₀ · Φ = EA cosθ · A<sub>lateral</sub> = 2πrL · E = Q<sub>enc</sub>/(2πε₀rL)<br>ρ = q/(πa²L) · Q<sub>enc</sub> = ρπr²L = q r²/a² · E ≈ (1/4πε₀)Q/r² (puntos lejanos)</p></div>
+ <div class="card ok"><b>Solución completa del cascarón</b> (q = 10 μC, Q = 20 μC, a = 1 m, b = 2 m, c = 3 m, L = 5 m)
+ <p>Pasos: 1) identificar región · 2) cilindro coaxial de radio r y longitud L · 3) Q<sub>enc</sub> · 4) A = 2πrL (tapas: Φ = 0) · 5) E(2πrL) = Q<sub>enc</sub>/ε₀ · 6) E = Q<sub>enc</sub>/(2πε₀rL)</p>
+ <div style="overflow-x:auto"><table><tr><th>Región</th><th>Q<sub>enc</sub></th><th>Valor</th><th>E</th></tr>${rows}</table></div></div>
+ <div class="card bad"><b>Errores frecuentes</b><ul>${ERR.map(x=>`<li>${x[0]} → ${x[2]}</li>`).join('')}</ul></div>
+ <div class="card c"><b>Qué trabaja cada nivel</b><ul>${LV.map((l,i)=>`<li>${i+1}. <b>${l.n}:</b> ${l.d}</li>`).join('')}</ul></div>`;
+ $('.bk',m).onclick=S.name?map:start;$('#tv').onchange=e=>{S.teacher=e.target.checked}}
+start();
+</script></body></html>
